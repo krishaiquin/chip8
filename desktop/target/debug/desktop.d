@@ -1,0 +1,1 @@
+/mnt/c/Users/krish/OneDrive/Documents/git/chip8/desktop/target/debug/desktop: /mnt/c/Users/krish/OneDrive/Documents/git/chip8/chip8_core/src/lib.rs /mnt/c/Users/krish/OneDrive/Documents/git/chip8/desktop/src/main.rs
