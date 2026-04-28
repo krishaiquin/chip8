@@ -1,52 +1,66 @@
 use std::time::{Duration, Instant};
 use std::env;
+use std::fs;
 
 const RAM_SIZE: usize = 4096;
 const NUM_REG: usize = 16;
 const SCREEN_HEIGHT: usize = 64;
 const SCREEN_WIDTH: usize = 32;
-const FONT_SIZE: usize = 80;
-const STACK_SIZE: usize = 16;
+//const FONT_SIZE: usize = 80;
+//const STACK_SIZE: usize = 16;
 const BYTE: usize = 8;
 const FLAG_REGISTER: usize = 0xF;
+const INSTRUCTIONS_PER_SECOND: u64 = 700;
+const NANOS_PER_INSTRUCTION: u64 = 1_000_000_000/INSTRUCTIONS_PER_SECOND;
+
 /**
  * fonts
  */
-const FONTS: [u8; FONT_SIZE] = [
-    0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
-    0x20, 0x60, 0x20, 0x20, 0x70, // 1
-    0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
-    0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
-    0x90, 0x90, 0xF0, 0x10, 0x10, // 4
-    0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
-    0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
-    0xF0, 0x10, 0x20, 0x40, 0x40, // 7
-    0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
-    0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
-    0xF0, 0x90, 0xF0, 0x90, 0x90, // A
-    0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
-    0xF0, 0x80, 0x80, 0x80, 0xF0, // C
-    0xE0, 0x90, 0x90, 0x90, 0xE0, // D
-    0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
-    0xF0, 0x80, 0xF0, 0x80, 0x80  // F 
-]; 
+// const FONTS: [u8; FONT_SIZE] = [
+//     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
+//     0x20, 0x60, 0x20, 0x20, 0x70, // 1
+//     0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
+//     0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
+//     0x90, 0x90, 0xF0, 0x10, 0x10, // 4
+//     0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
+//     0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
+//     0xF0, 0x10, 0x20, 0x40, 0x40, // 7
+//     0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
+//     0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
+//     0xF0, 0x90, 0xF0, 0x90, 0x90, // A
+//     0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
+//     0xF0, 0x80, 0x80, 0x80, 0xF0, // C
+//     0xE0, 0x90, 0x90, 0x90, 0xE0, // D
+//     0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
+//     0xF0, 0x80, 0xF0, 0x80, 0x80  // F 
+// ]; 
 struct Chip8 {
     memory: [u8; RAM_SIZE],
     i_reg: u16, //holds the memory addr of sprite data
     pc: u16,
-    stack: [u16; STACK_SIZE],
+    //stack: [u16; STACK_SIZE],
     registers: [u8; NUM_REG],
-    delay_timer: u8,
-    sound_timer: u8,
+    //delay_timer: u8,
+    //sound_timer: u8,
     display: [bool; SCREEN_HEIGHT * SCREEN_WIDTH],
 }
 
 impl Chip8 {
+
+    fn render(&mut self) {
+        for row in (0..self.display.len()).step_by(SCREEN_WIDTH) {
+            for _ in row..row+SCREEN_WIDTH {
+                print!("█");
+            }
+        }
+    }
     fn fetch(&mut self) -> u16 {
-        let instr_lo = self.memory[self.pc as usize];
-        let instr_hi = self.memory[self.pc as usize + 1];
+        let instr_hi = self.memory[self.pc as usize];
+        let instr_lo = self.memory[self.pc as usize + 1];
+        let instr = (instr_hi as u16) << BYTE | instr_lo as u16 ;
+        //debug
+        println!("(pc, instr): ({:02X?},{:04X?})", self.pc, instr);
         self.pc += 2;
-        let instr = instr_lo as u16 | (instr_hi as u16) << BYTE;
 
         instr
     }
@@ -85,6 +99,8 @@ impl Chip8 {
             let height = (instr & 0xF) as usize;
             
             self.registers[FLAG_REGISTER] = 0;
+
+            //set display
             for i in 0..height {
                 if x + i <= SCREEN_HEIGHT {
                     let sprite_data = self.memory[(self.i_reg as usize) + i];
@@ -106,6 +122,9 @@ impl Chip8 {
                 }
             }
 
+            //render
+            self.render();
+
            }
            _ => {
             println!("Not implemented yet!");
@@ -124,28 +143,34 @@ impl Chip8 {
 
 
     
-fn main() { 
+fn main() -> Result<(), Box<dyn std::error::Error + 'static>> { 
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
         eprintln!("Usage: {} <rom_path>", args[0]);
         std::process::exit(1);
     }
+
     //instantiating chip8
     let mut chip8 = Chip8 {
         memory: [0; RAM_SIZE],
         pc: 0x200,
-        stack: [0; STACK_SIZE],
+        //stack: [0; STACK_SIZE],
         registers: [0; NUM_REG],
         i_reg: 0,
-        delay_timer: 0,
-        sound_timer: 0,
+        //delay_timer: 0,
+        //sound_timer: 0,
         display: [false; SCREEN_HEIGHT * SCREEN_WIDTH]        
     };
 
-    //load the game
-
-    const INSTRUCTIONS_PER_SECOND: u64 = 700;
-    const NANOS_PER_INSTRUCTION: u64 = 1_000_000_000/INSTRUCTIONS_PER_SECOND;
+    //load rom
+    let rom = fs::read(&args[1])?;
+    chip8.memory[0x200..0x200 + rom.len()].copy_from_slice(&rom);
+    
+    //debug
+    for (addr, data) in chip8.memory.chunks(16).enumerate() {
+        println!("{:04X}: {:02X?}", addr * 16, data);
+    }
+    
     
     let mut last_tick = Instant::now();
     loop {
@@ -158,4 +183,5 @@ fn main() {
         }
     
     }
+
 }
