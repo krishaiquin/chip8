@@ -1,11 +1,12 @@
 use std::time::{Duration, Instant};
 use std::env;
 use std::fs;
+use std::thread::sleep;
 
 const RAM_SIZE: usize = 4096;
 const NUM_REG: usize = 16;
-const SCREEN_HEIGHT: usize = 64;
-const SCREEN_WIDTH: usize = 32;
+const SCREEN_HEIGHT: usize = 32;
+const SCREEN_WIDTH: usize = 64;
 //const FONT_SIZE: usize = 80;
 //const STACK_SIZE: usize = 16;
 const BYTE: usize = 8;
@@ -34,6 +35,12 @@ const NANOS_PER_INSTRUCTION: u64 = 1_000_000_000/INSTRUCTIONS_PER_SECOND;
 //     0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
 //     0xF0, 0x80, 0xF0, 0x80, 0x80  // F 
 // ]; 
+macro_rules! debug_println {
+    ($($arg:tt)*) => {
+        #[cfg(debug_assertions)]
+        println!($($arg)*);
+    };
+}
 struct Chip8 {
     memory: [u8; RAM_SIZE],
     i_reg: u16, //holds the memory addr of sprite data
@@ -48,18 +55,25 @@ struct Chip8 {
 impl Chip8 {
 
     fn render(&mut self) {
+        print!("\x1B[H");
         for row in (0..self.display.len()).step_by(SCREEN_WIDTH) {
-            for _ in row..row+SCREEN_WIDTH {
-                print!("█");
+            for pixel in row..row+SCREEN_WIDTH {
+                if self.display[pixel] {
+                    print!("█");
+                } else {
+                    print!(" ")
+                }
             }
+            println!();
         }
+        
     }
     fn fetch(&mut self) -> u16 {
         let instr_hi = self.memory[self.pc as usize];
         let instr_lo = self.memory[self.pc as usize + 1];
         let instr = (instr_hi as u16) << BYTE | instr_lo as u16 ;
         //debug
-        println!("(pc, instr): ({:02X?},{:04X?})", self.pc, instr);
+        debug_println!("(pc, instr): ({:02X?},{:04X?})", self.pc, instr);
         self.pc += 2;
 
         instr
@@ -67,20 +81,24 @@ impl Chip8 {
 
     //decode happens here too
     fn execute(&mut self, instr: u16) {
-        let opcode: u8 = ((instr & 0xF0) >> BYTE) as u8;
+        let nibble: u8 = ((instr & 0xFF00) >> 12) as u8;
+        debug_println!("opcode: {:02X?}", nibble);
 
-        match opcode {
+        match nibble {
            0x0 =>  {
             self.display = [false; SCREEN_HEIGHT * SCREEN_WIDTH]
            },
            0x1 => {
             let addr = instr & 0xFFF;
             self.pc = addr;
+            debug_println!("pc = {:04X?}", self.pc);
+            debug_println!("addr = {:04X?}", addr);
            },
            0x6 => {
             let reg = ((instr & 0xF00) >> BYTE) as usize;
             let val = (instr & 0xFF) as u8;
             self.registers[reg] = val;
+            debug_println!("Register[{reg}]: {:02X?}", self.registers[reg]);
            },
            0x7 => {
             let reg = ((instr & 0xF00) >> BYTE) as usize;
@@ -90,25 +108,29 @@ impl Chip8 {
            0xA => {
             let addr = instr & 0xFFF;
             self.i_reg = addr;
+            debug_println!("i_reg: {:04X?}", self.i_reg);
            }
            0xD => {
             let reg_x = ((instr & 0xF00) >> BYTE) as usize;
-            let reg_y = ((instr & 0x0F0) >> BYTE) as usize;
-            let x = self.registers[reg_x] as usize % SCREEN_HEIGHT;
-            let y = self.registers[reg_y] as usize % SCREEN_WIDTH;
+            let reg_y = ((instr & 0x0F0) >> 4) as usize;
+            let x = self.registers[reg_x] as usize % SCREEN_WIDTH;
+            let y = self.registers[reg_y] as usize % SCREEN_HEIGHT;
             let height = (instr & 0xF) as usize;
             
             self.registers[FLAG_REGISTER] = 0;
 
+            debug_println!("register[{reg_x}]: {x}");
+            debug_println!("register[{reg_y}]: {y}");
+            debug_println!("height(hex,dec): ({:02X?}, {height})", {height});
             //set display
             for i in 0..height {
-                if x + i <= SCREEN_HEIGHT {
+                if y + i <= SCREEN_HEIGHT {
                     let sprite_data = self.memory[(self.i_reg as usize) + i];
                     //for each bit in sprite_data
-                    for j in 0..BYTE {
-                        if y + j <= SCREEN_WIDTH {
-                            let sprite_bit = sprite_data >> ((BYTE - 1) - i);
-                            let flatten_coord = ((y+i) * SCREEN_WIDTH) + x+j;
+                    for bit in 0..BYTE {
+                        if y + bit <= SCREEN_WIDTH {
+                            let sprite_bit = (sprite_data >> ((BYTE - 1) - bit)) & 1;
+                            let flatten_coord = ((y + i) * SCREEN_WIDTH) + (x + bit);
                             let screen_pixel = &mut self.display[flatten_coord];
 
                             if sprite_bit == 1 && *screen_pixel == true {
@@ -121,9 +143,6 @@ impl Chip8 {
                     }
                 }
             }
-
-            //render
-            self.render();
 
            }
            _ => {
@@ -168,11 +187,12 @@ fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
     
     //debug
     for (addr, data) in chip8.memory.chunks(16).enumerate() {
-        println!("{:04X}: {:02X?}", addr * 16, data);
+        debug_println!("{:04X}: {:02X?}", addr * 16, data);
     }
     
     
     let mut last_tick = Instant::now();
+    print!("\x1B[H");
     loop {
         let now = Instant::now();
         let elapsed = now.duration_since(last_tick);
@@ -181,6 +201,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             chip8.tick();
             last_tick = now;
         }
+
+        chip8.render();
+        sleep(Duration::from_millis(16)); // ~60fps
     
     }
 
