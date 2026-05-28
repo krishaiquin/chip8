@@ -72,7 +72,7 @@ impl Chip8 {
         ((hi << 4) | lo) as i8
     }
     fn combine_u16(&self, hi: u8, mid: u8, lo: u8) -> u16 {
-        (hi << 8) as u16 | (mid << 4) as u16 | lo as u16
+        (hi as u16) << 8 | (mid as u16) << 4 | lo as u16
     } 
     fn fetch(&mut self) -> u16 {
         let instr_hi = self.memory[self.pc as usize];
@@ -231,7 +231,7 @@ impl Chip8 {
                 let regx = self.registers[nibble2 as usize];
                 let leftmost_bit = regx & 0x10;
 
-                // Shift VX by 1 bit to the right
+                // shift VX by 1 bit to the left
                 self.registers[nibble2 as usize] = regx << 1;
                 // set VF if bit shift out was 1
                 if leftmost_bit == 0x10 {
@@ -240,8 +240,48 @@ impl Chip8 {
                     self.registers[FLAG_REGISTER] = 0; 
                 }
             },
+            (0xA, _, _, _) => {
+                let addr = self.combine_u16(nibble2, nibble3, nibble4);
+                self.i_reg = addr;
+                debug_println!("i_reg: {:04X?}", self.i_reg);
+            },
+            (0xD, _, _, _) => {
+                let x = self.registers[nibble2 as usize] as usize % SCREEN_WIDTH;
+                let y = self.registers[nibble3 as usize] as usize % SCREEN_HEIGHT;
+                let height = (instr & 0xF) as usize;
+                
+                self.registers[FLAG_REGISTER] = 0;
+
+                debug_println!("register[{nibble2}]: {x}");
+                debug_println!("register[{nibble3}]: {y}");
+                debug_println!("height(hex,dec): ({:02X?}, {height})", {height});
+                //set display
+                for i in 0..height {
+                    let row = y + i;
+                    if row <= SCREEN_HEIGHT {
+                        let sprite_data = self.memory[(self.i_reg as usize) + i];
+                        //for each bit in sprite_data
+                        for bit in 0..BYTE {
+                            let col = x + bit;
+                            if col <= SCREEN_WIDTH {
+                                let sprite_bit = (sprite_data >> ((BYTE - 1) - bit)) & 1;
+                                let flatten_coord = (row * SCREEN_WIDTH) + col;
+                                let screen_pixel = &mut self.display[flatten_coord];
+
+                                if sprite_bit == 1 && *screen_pixel == true {
+                                    self.registers[FLAG_REGISTER] = 1;
+                                    *screen_pixel = false;
+                                } else if sprite_bit == 1 && *screen_pixel == false {
+                                    *screen_pixel = true;
+                                }
+                            }   
+                        }
+                    }
+                }
+            },
             (_, _, _, _) => {
-                println!("Invalid opcode");
+                println!("Invalid opcode. exiting...");
+                std::process::exit(1);
             }
         //    0x0 =>  {
         //     self.display = [false; SCREEN_HEIGHT * SCREEN_WIDTH]
