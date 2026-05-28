@@ -53,7 +53,6 @@ struct Chip8 {
 }
 
 impl Chip8 {
-
     fn render(&mut self) {
         print!("\x1B[H");
         for row in (0..self.display.len()).step_by(SCREEN_WIDTH) {
@@ -210,6 +209,32 @@ impl Chip8 {
                 self.registers[nibble2 as usize] = regy - regx;
 
                 if regy >= regx {
+                    self.registers[FLAG_REGISTER] = 1; 
+                } else {
+                    self.registers[FLAG_REGISTER] = 0; 
+                }
+            },
+            (0x8, _, _, 6) => {
+                let regx = self.registers[nibble2 as usize];
+                let rightmost_bit = regx & 0x1;
+
+                // Shift VX by 1 bit to the right
+                self.registers[nibble2 as usize] = regx >> 1;
+                // set VF if bit shift out was 1
+                if rightmost_bit == 1 {
+                    self.registers[FLAG_REGISTER] = 1; 
+                } else {
+                    self.registers[FLAG_REGISTER] = 0; 
+                }
+            },
+            (0x8, _, _, 0xE) => {
+                let regx = self.registers[nibble2 as usize];
+                let leftmost_bit = regx & 0x10;
+
+                // Shift VX by 1 bit to the right
+                self.registers[nibble2 as usize] = regx << 1;
+                // set VF if bit shift out was 1
+                if leftmost_bit == 0x10 {
                     self.registers[FLAG_REGISTER] = 1; 
                 } else {
                     self.registers[FLAG_REGISTER] = 0; 
